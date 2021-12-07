@@ -1,0 +1,231 @@
+UseController类添加新方法
+    /**
+     * 用户登录方法
+     * @param req
+     * @param resp
+     * @throws ServletException
+     * @throws IOException
+     */
+    @SuppressWarnings("unused")
+    private void login(HttpServletRequest req, HttpServletResponse resp) throws ServletException, IOException {
+        String username = req.getParameter("username");
+        String password = req.getParameter("password");
+        String expiredays = req.getParameter("expiredays");
+        Cookie[] cookies = req.getCookies();
+        //是否登陆的标记，true登录false未登录
+        boolean login = false;
+        String account = null;//登录账号
+        String ssid = null;//这是一个标记，通过cookie判断一个用户该不该成功登录
+        /**
+         * 非首次登陆，获取userKey和ssid对应的值
+         */
+        if(cookies != null && cookies.length > 0) {
+            for (Cookie cookie : cookies) {
+                if(cookie.getName().equals("userKey")) {
+                    account = cookie.getValue();
+                }
+
+                if(cookie.getName().equals("ssid")) {
+                    ssid = cookie.getValue();
+                }
+            }
+        }
+
+        if(account != null && ssid != null) {
+            login = ssid.equals(CookiesUtils.md5Encrypt(username));
+        }
+
+        if(!login) {//用户首次登陆，不实用Cookie
+            //第一次登录
+            User user = userService.login(username, password);//通过访问数据库检查用户名和密码
+            //登录成功返回用户，登录失败返回null
+            if(user != null) { //首次登陆成功
+                //写cookie
+                expiredays = (expiredays==null)?"":expiredays;
+                /**
+                 * 写入相关的cookie,分别为userKey和ssid对应的信息
+                 */
+                switch (expiredays) {
+                case "7" : {
+                    CookiesUtils.createCookie(username, req, resp, 7*24*60*60);
+                    break;
+                }
+                case "30" : {
+                    //创建cookie 30天
+                    CookiesUtils.createCookie(username, req, resp, 30*24*60*60);
+                    break;
+                }
+                case "100" : {
+                    //创建cookie 永远 Integer.Max
+                    CookiesUtils.createCookie(username, req, resp, Integer.MAX_VALUE);
+                    break;
+                }
+                default : {
+                    CookiesUtils.createCookie(username, req, resp, -1);
+                    break;
+                }
+                }
+                //登陆成功
+                req.getRequestDispatcher("/main.jsp").forward(req, resp);
+            }else {//首次登陆用户名或密码错误
+                req.setAttribute("note", "用户名或密码是错误的！");
+                req.getRequestDispatcher("/login.jsp").forward(req, resp);
+            }
+        } else {//Cookie登陆成功
+            expiredays = (expiredays==null)?"":expiredays;
+            if(expiredays.equals("-1")) {
+                CookiesUtils.createCookie(username, req, resp, -1);
+            }
+            req.getRequestDispatcher("/main.jsp").forward(req, resp);
+        }
+
+    }
+
+   1，注意表单提交的名字，一定是login.udo才能被此函数执行 
+2，程序正常执行需要CookiesUtils工具
+
+
+
+
+CookiesUtils工具
+package com.foot.mvcpro.utils;
+
+import java.security.MessageDigest;
+
+import javax.servlet.http.Cookie;
+import javax.servlet.http.HttpServletRequest;
+import javax.servlet.http.HttpServletResponse;
+
+public final class CookiesUtils {
+    private static final String KEY = "cookie key";
+    /**
+     * 指令浏览器创建cookie的方法
+     * @param username 放到cookie的用户名
+     * @param req
+     * @param resp 调用addcookie方法的response对象
+     * @param sec 失效时间 单位：秒
+     */
+    public static void createCookie(String username, HttpServletRequest req, HttpServletResponse resp, int sec) {
+        //写入userKey和ssid信息，方便下次登陆查询
+        Cookie userCookie = new Cookie("userKey", username);
+        Cookie ssidCookie = new Cookie("ssid", md5Encrypt(username));
+        userCookie.setMaxAge(sec);
+        ssidCookie.setMaxAge(sec);
+        resp.addCookie(userCookie);
+        resp.addCookie(ssidCookie);
+    }
+    /**
+     * 把一个明文字符串加密成密文
+     * @param str 要加密的明文
+     * @return
+     */
+    public static String md5Encrypt(String str) {
+        str= (str==null)?"":(str+KEY);
+        char[] md5Digst = {'0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b', 'c', 'd', 'e', 'f'};//字典
+        try {
+            MessageDigest md = MessageDigest.getInstance("MD5");//MD5  sha1
+            byte[] strArr = str.getBytes();
+            md.update(strArr);//把明文放到MessageDigest的对象中，更新数据
+            byte[] msg = md.digest();//加密操作
+            //进一步加密
+            int len = msg.length;
+
+            char[] result = new char[len*2];
+            int k = 0;
+
+            for(int i = 0; i < len; i++) {
+                byte b = msg[i];
+                result[k++] = md5Digst[b>>4 & 0xf];
+                result[k++] = md5Digst[b & 0xf];
+            }
+            System.out.println(result);
+            return new String(result);
+
+        } catch(Exception e) {
+            e.printStackTrace();
+        }
+        return null;
+    }
+ }
+
+
+
+
+
+jsp页面
+<%@ page language="java" contentType="text/html; charset=UTF-8" pageEncoding="UTF-8"%>
+<!DOCTYPE html PUBLIC "-//W3C//DTD HTML 4.01 Transitional//EN" "http://www.w3.org/TR/html4/loose.dtd">
+<html>
+<head>
+<meta http-equiv="Content-Type" content="text/html; charset=UTF-8">
+<title>永久登录</title>
+
+<script type="text/javascript">
+/****如果以下代码出现有错误，需参考[JavaWeb内javascript出错检测方法](https://blog.csdn.net/footprint01/article/details/82463938)的方法来纠错*****/
+    /**
+     * 获取指定的键值对对应键的值
+     */
+    function getCookie(c_name) {
+        if(document.cookie.length > 0) {
+            var c_start = document.cookie.indexOf(c_name+"=");
+            c_start = c_start + c_name.length + 1;
+            var c_end = document.cookie.indexOf(";", c_start);
+            if(c_end == -1) {
+                c_end = document.cookie.length;
+            }
+            return unescape(document.cookie.substring(c_start, c_end));
+        }
+    }
+
+    //
+    window.onload=function(){
+        //alert(123456);
+        var form = document.getElementById("loginform");
+        var username = document.getElementById("username");
+        var password = document.getElementById("password");
+        if(getCookie("userKey") != null && getCookie("userKey") != "" && getCookie("ssid") != null && getCookie("ssid") != "") {
+            username.value = getCookie("userKey");
+            password.value = getCookie("ssid");
+            //form.submit();//设置自动提交
+        }
+    }
+</script>
+
+</head>
+<body>
+
+    <br><br>
+        <% if(request.getAttribute("note") != null) { %>
+        <span style="color: red; font-weight: bolder;"><%=request.getAttribute("note") %></span>
+        <% } %>
+    <br><br>
+
+    <form id="loginform" action="<%=request.getContextPath()%>/login.udo" method="get">
+        用户名：<input id="username" type="text" name="username" value=""/> 
+        <br> <br> 
+        密 码：<input id="password" type="text" name="password" value=""/> 
+        <br> <br> 
+            <input type="radio" name="expiredays" value="7" /> 记住我一周
+            <input type="radio" name="expiredays" value="30" /> 记住我一个月
+            <input type="radio" name="expiredays" value="100" /> 永远记住
+            <input type="radio" name="expiredays" value="-1" /> 忘掉密码
+         <br> <br> 
+        <input type="submit" value="登录" />
+    </form>
+
+</body>
+</html>
+
+
+
+
+username.value = getCookie(“userKey”); 
+password.value = getCookie(“ssid”);//使建立的网页内哟内容 
+//form.submit();//设置自动提交该代码可以实现自动提交。
+
+
+
+
+
+
+
